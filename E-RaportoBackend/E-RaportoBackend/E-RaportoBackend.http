@@ -1,0 +1,6 @@
+@E_RaportoBackend_HostAddress = http://localhost:5216
+
+GET {{E_RaportoBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

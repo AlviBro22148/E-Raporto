@@ -1,0 +1,38 @@
+# --- .NET ---
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+appsettings.*.local.json
+
+# --- Node / JS ---
+node_modules/
+dist/
+build/
+.expo/
+.expo-shared/
+*.tsbuildinfo
+.vite/
+
+# --- Secrets & env ---
+.env
+.env.local
+.env.*.local
+!.env.example
+secrets.json
+
+# --- Runtime uploads (demo photos are seeded, not committed) ---
+E-RaportoBackend/E-RaportoBackend/wwwroot/uploads/*
+!E-RaportoBackend/E-RaportoBackend/wwwroot/uploads/.gitkeep
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-error.log*
+.idea/
+.vscode/*
+!.vscode/extensions.json

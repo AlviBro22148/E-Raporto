@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "E-Raporto",
+    "slug": "e-raporto",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "eraporto",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "//splash": "backgroundColor is the light surface from the app palette, not the brand navy: the slogan ink is rgb(0,48,72), which would be invisible on a dark ground. A dark-mode variant would need a light-ink export of the logo.",
+    "splash": {
+      "image": "./assets/splash-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F4F6F8"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "al.gov.elbasan.eraporto",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "E-Raporto e përdor vendndodhjen tuaj për të treguar problemet pranë jush dhe për të vendosur saktë raportin tuaj në hartë.",
+        "NSCameraUsageDescription": "E-Raporto e përdor kamerën që ju të fotografoni problemin që po raportoni.",
+        "NSPhotoLibraryUsageDescription": "E-Raporto lejon bashkëngjitjen e një fotoje ekzistuese në raportin tuaj."
+      }
+    },
+    "android": {
+      "package": "al.gov.elbasan.eraporto",
+      "edgeToEdgeEnabled": true,
+      "//predictiveBackGestureEnabled": "Explicit even though false is Expo's own default: Android's predictive-back gesture snapshots the screen as the user drags, and a SurfaceView-backed WebView (the map) does not reliably survive being captured mid-gesture — the blank/frozen screen bug this app hit. Expo Router + predictive back has open compatibility issues beyond this app's map (expo/expo#39092). Written here for the day this app leaves Expo Go for a real build, since Expo Go's own shell ignores this setting entirely.",
+      "predictiveBackGestureEnabled": false,
+      "//adaptiveIcon": "Brand navy, unlike the splash: the icon carries the emblem alone, so there is no dark wordmark to lose against it.",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B2545"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "E-Raporto e përdor vendndodhjen tuaj vetëm kur po raportoni ose po shikoni hartën."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "E-Raporto lejon bashkëngjitjen e një fotoje në raportin tuaj.",
+          "cameraPermission": "E-Raporto e përdor kamerën që ju të fotografoni problemin."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-sharing"
+    ],
+    "extra": {
+      "//apiUrl": "Override per-machine with EXPO_PUBLIC_API_URL in .env. Expo Go on a phone cannot reach 'localhost' — use the dev machine's LAN IP.",
+      "//maps": "Maps are Leaflet in a WebView (see src/components/LeafletMap.tsx), not react-native-maps: no Google Maps API key, no native module, identical behaviour in Expo Go and in a build.",
+      "//eas": "Required for real push notifications to work in any build (dev build, TestFlight, or the store). Run `eas init` once from this directory — it adds an `eas.projectId` key here itself, pointing at the project on your Expo account. Until that has been done, the key stays absent and push registration silently no-ops; everything else in the app is unaffected. (Deliberately not present as a null placeholder: Expo Go serves a literal `null` back to the client as an empty object, not as JS null/undefined — a real, if surprising, quirk of how it composes the served manifest — so a placeholder here would actively break the falsy-check in useNotifications.ts rather than just doing nothing.)",
+      "router": {}
+    }
+  }
+}
