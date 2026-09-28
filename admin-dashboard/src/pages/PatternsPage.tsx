@@ -37,11 +37,6 @@ export function PatternsPage() {
     <div style={{ padding: '22px 26px 48px', maxWidth: 1280, margin: '0 auto' }}>
       <header style={{ marginBottom: 18 }}>
         <h1>Modele sistemike</h1>
-        <p className="muted" style={{ fontSize: 13, marginTop: 2, maxWidth: 680 }}>
-          Kur disa raporte <em>të ndryshme</em> — jo i njëjti incident, por probleme më vete — vijnë nga
-          e njëjta zonë dhe kategori brenda pak muajsh, sistemi kontrollon nëse ka gjasa të ndajnë një
-          shkak. Asgjë nuk bashkohet: secili rast mbetet i veçantë, ky është vetëm një këndvështrim shtesë.
-        </p>
       </header>
 
       {isLoading ? <Spinner />

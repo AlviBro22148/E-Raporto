@@ -1,11 +1,11 @@
 import * as signalR from '@microsoft/signalr';
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { API_URL, tokenStore } from './client';
+import { API_URL } from './client';
 
 export type RealtimeEntity =
   | 'report' | 'notification' | 'duplicateCandidate' | 'citizenProfile' | 'systemicPattern'
-  | 'photoReuseFlag';
+  | 'photoReuseFlag' | 'fraudFlag';
 
 export interface EntityChangedEvent {
   entity: RealtimeEntity;
@@ -38,9 +38,12 @@ export function useRealtimeSync(enabled: boolean): ConnectionState {
 
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(`${API_URL}/hubs/realtime`, {
-        // The token cannot ride a WebSocket handshake as a header, so the client appends it as
-        // ?access_token=; the API only honours that on the hub path.
-        accessTokenFactory: () => tokenStore.get() ?? '',
+        // No accessTokenFactory: the staff session rides the httpOnly cookie, which the browser
+        // attaches to the hub's negotiate/WebSocket requests on its own — there's no token for this
+        // client to read any more. withCredentials is explicit rather than relying on the library's
+        // default, since dashboard and API run on different ports (a cross-origin request as far as
+        // the browser's credential rules are concerned, even though they're the same site).
+        withCredentials: true,
       })
       .withAutomaticReconnect({
         nextRetryDelayInMilliseconds: retry =>
@@ -74,9 +77,16 @@ export function useRealtimeSync(enabled: boolean): ConnectionState {
           queryClient.invalidateQueries({ queryKey: ['reports'] });
           break;
 
-        case 'photoReuseFlag':
-          queryClient.invalidateQueries({ queryKey: ['photo-reuse'] });
+        case 'fraudFlag':
+          queryClient.invalidateQueries({ queryKey: ['fraud'] });
           queryClient.invalidateQueries({ queryKey: ['reports'] });
+          queryClient.invalidateQueries({ queryKey: ['analytics'] });
+          break;
+
+        // Fires alongside 'fraudFlag' for a PhotoReuse-kind flag specifically — kept only because the
+        // mobile app's own dedicated photo-reuse screen still listens for it; the dashboard doesn't have
+        // a separate page for it any more, 'fraudFlag' above already covers everything this would.
+        case 'photoReuseFlag':
           break;
 
         // notification and citizenProfile are per-citizen and never reach a staff connection; they are

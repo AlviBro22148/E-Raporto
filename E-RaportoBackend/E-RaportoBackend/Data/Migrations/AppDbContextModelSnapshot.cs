@@ -339,6 +339,72 @@ namespace E_RaportoBackend.Data.Migrations
                     b.ToTable("duplicate_candidate", (string)null);
                 });
 
+            modelBuilder.Entity("E_RaportoBackend.Domain.FraudFlag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("RaisedByStaffId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("raised_by_staff_id");
+
+                    b.Property<string>("Reasoning")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reasoning");
+
+                    b.Property<Guid?>("RelatedReportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("related_report_id");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("report_id");
+
+                    b.Property<int>("ReviewStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("review_status");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<Guid?>("ReviewedByStaffId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by_staff_id");
+
+                    b.Property<double?>("Score")
+                        .HasColumnType("double precision")
+                        .HasColumnName("score");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind");
+
+                    b.HasIndex("RaisedByStaffId");
+
+                    b.HasIndex("RelatedReportId");
+
+                    b.HasIndex("ReviewStatus");
+
+                    b.HasIndex("ReviewedByStaffId");
+
+                    b.HasIndex("ReportId", "RelatedReportId", "Kind")
+                        .IsUnique();
+
+                    b.ToTable("fraud_flag", (string)null);
+                });
+
             modelBuilder.Entity("E_RaportoBackend.Domain.Municipality", b =>
                 {
                     b.Property<Guid>("Id")
@@ -392,53 +458,6 @@ namespace E_RaportoBackend.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("municipality", (string)null);
-                });
-
-            modelBuilder.Entity("E_RaportoBackend.Domain.PhotoReuseFlag", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("HammingDistance")
-                        .HasColumnType("integer")
-                        .HasColumnName("hamming_distance");
-
-                    b.Property<Guid>("MatchedReportId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("matched_report_id");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("report_id");
-
-                    b.Property<int>("ReviewStatus")
-                        .HasColumnType("integer")
-                        .HasColumnName("review_status");
-
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("reviewed_at");
-
-                    b.Property<Guid?>("ReviewedByStaffId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("reviewed_by_staff_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatchedReportId");
-
-                    b.HasIndex("ReviewStatus");
-
-                    b.HasIndex("ReportId", "MatchedReportId")
-                        .IsUnique();
-
-                    b.ToTable("photo_reuse_flag", (string)null);
                 });
 
             modelBuilder.Entity("E_RaportoBackend.Domain.Report", b =>
@@ -1051,13 +1070,17 @@ namespace E_RaportoBackend.Data.Migrations
                     b.Navigation("Report");
                 });
 
-            modelBuilder.Entity("E_RaportoBackend.Domain.PhotoReuseFlag", b =>
+            modelBuilder.Entity("E_RaportoBackend.Domain.FraudFlag", b =>
                 {
-                    b.HasOne("E_RaportoBackend.Domain.Report", "MatchedReport")
+                    b.HasOne("E_RaportoBackend.Domain.StaffUser", "RaisedByStaff")
                         .WithMany()
-                        .HasForeignKey("MatchedReportId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasForeignKey("RaisedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("E_RaportoBackend.Domain.Report", "RelatedReport")
+                        .WithMany()
+                        .HasForeignKey("RelatedReportId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("E_RaportoBackend.Domain.Report", "Report")
                         .WithMany()
@@ -1065,9 +1088,18 @@ namespace E_RaportoBackend.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("MatchedReport");
+                    b.HasOne("E_RaportoBackend.Domain.StaffUser", "ReviewedByStaff")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByStaffId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("RaisedByStaff");
+
+                    b.Navigation("RelatedReport");
 
                     b.Navigation("Report");
+
+                    b.Navigation("ReviewedByStaff");
                 });
 
             modelBuilder.Entity("E_RaportoBackend.Domain.Report", b =>

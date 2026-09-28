@@ -68,11 +68,11 @@ export default function StaffLayout() {
         }}
       />
       <Tabs.Screen
-        name="photo-reuse"
+        name="fraud"
         options={{
-          title: tr('nav.photoReuse'),
-          headerTitle: tr('nav.photoReuseHeader'),
-          tabBarIcon: ({ color, focused }) => <TabIcon glyph="⎘" color={color} focused={focused} />,
+          title: tr('nav.fraud'),
+          headerTitle: tr('nav.fraudHeader'),
+          tabBarIcon: ({ color, focused }) => <TabIcon glyph="⚠" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen

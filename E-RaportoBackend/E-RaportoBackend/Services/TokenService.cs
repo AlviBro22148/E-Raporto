@@ -19,6 +19,18 @@ public class JwtOptions
     public int ExpiryHours { get; set; } = 12;
 }
 
+/// <summary>
+/// The cookie the staff dashboard's JWT rides in. Kept httpOnly so a browser-side XSS bug cannot read
+/// the token out of storage and steal a clerk's session — the dashboard never sees the token value at
+/// all, only the fact that a request did or didn't come back 401. The mobile app is unaffected: it
+/// still gets the same token in the login response body and carries it as an Authorization header from
+/// AsyncStorage, which isn't exposed to page-injected JavaScript the way browser storage is.
+/// </summary>
+public static class AuthCookies
+{
+    public const string StaffToken = "e_raporto_staff_token";
+}
+
 /// <summary>Custom claim types shared by both token kinds this service issues.</summary>
 public static class AppClaimTypes
 {

@@ -201,12 +201,42 @@ public class StaffReportsController(
                 .FirstOrDefaultAsync(p => p.Id == patternId, ct)
             : null;
 
+        // Every flag naming this report, whichever side of a PhotoReuse/TemplatedText pairing it's on —
+        // dismissed ones stay visible here too, so a clerk opening this report sees the full history, not
+        // just whatever is still pending in the queue.
+        var fraudFlags = await db.FraudFlags.AsNoTracking()
+            .Include(f => f.RaisedByStaff).Include(f => f.ReviewedByStaff)
+            .Where(f => f.ReportId == id || f.RelatedReportId == id)
+            .OrderByDescending(f => f.CreatedAt)
+            .ToListAsync(ct);
+
+        var fraudRelatedIds = fraudFlags.Select(f => f.ReportId)
+            .Concat(fraudFlags.Where(f => f.RelatedReportId is not null).Select(f => f.RelatedReportId!.Value))
+            .Where(x => x != id).Distinct().ToList();
+        var fraudRelatedReports = fraudRelatedIds.Count == 0
+            ? new Dictionary<Guid, Report>()
+            : await db.Reports.AsNoTracking().Include(r => r.Category).Include(r => r.Photos)
+                .Where(r => fraudRelatedIds.Contains(r.Id))
+                .ToDictionaryAsync(r => r.Id, ct);
+
+        var fraudFlagDtos = fraudFlags
+            .Select(f =>
+            {
+                var subject = f.ReportId == id ? report : fraudRelatedReports.GetValueOrDefault(f.ReportId);
+                var other = f.RelatedReportId is null ? null
+                    : f.RelatedReportId == id ? report : fraudRelatedReports.GetValueOrDefault(f.RelatedReportId.Value);
+                return subject is null ? null : f.ToDto(subject, other);
+            })
+            .Where(dto => dto is not null)
+            .ToList();
+
         return Ok(new ReportDetailDto(
             report.ToDto(suggested, verification: verification, pattern: pattern),
             history.Select(h => h.ToDto()).ToList(),
             candidateDtos,
             ReportWorkflow.AllowedNext(report.Status).Select(s => s.ToString()).ToList(),
-            pattern?.ToDto()));
+            pattern?.ToDto(),
+            fraudFlagDtos!));
     }
 
     /// <summary>Moves the case forward. Illegal transitions are refused with 409, not silently applied.</summary>
@@ -427,6 +457,42 @@ public class StaffReportsController(
             : await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == report.AiSuggestedCategoryId, ct);
 
         return Ok(report.ToDto(suggested));
+    }
+
+    /// <summary>
+    /// A clerk's own fraud call — the one kind in <see cref="FraudFlagKind"/> with no automated check
+    /// behind it, for whatever the AI signals structurally can't catch. Any report, any staff member, any
+    /// reason; touches nothing on the report itself, same as every other fraud flag.
+    /// </summary>
+    [HttpPost("{id:guid}/fraud-flags")]
+    [ProducesResponseType<FraudFlagDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<FraudFlagDto>> RaiseFraudFlag(
+        Guid id, RaiseFraudFlagRequest request, CancellationToken ct)
+    {
+        var me = await this.CurrentStaffAsync(db, ct);
+        if (me is null) return Unauthorized();
+
+        var report = await FullReports().FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (report is null) return NotFound();
+
+        var flag = new FraudFlag
+        {
+            ReportId = report.Id,
+            Kind = FraudFlagKind.StaffFlagged,
+            Reasoning = request.Reason.Trim(),
+            RaisedByStaffId = me.Id,
+            RaisedByStaff = me,
+        };
+        db.FraudFlags.Add(flag);
+
+        realtime.FraudFlagged(flag.Id, RealtimeActions.Created);
+        logger.LogInformation("Staff {Staff} flagged {Ref} as potential fraud", me.FullName, report.PublicRef);
+
+        await db.SaveChangesAsync(ct);
+        await realtime.FlushAsync(ct);
+
+        return Created(string.Empty, flag.ToDto(report, null));
     }
 
     private IQueryable<Report> FullReports() => db.Reports

@@ -9,7 +9,7 @@ import { API_URL, loadSession, type Notification } from './api';
 
 export type RealtimeEntity =
   | 'report' | 'notification' | 'duplicateCandidate' | 'citizenProfile' | 'systemicPattern'
-  | 'photoReuseFlag';
+  | 'fraudFlag';
 
 export interface EntityChangedEvent {
   entity: RealtimeEntity;

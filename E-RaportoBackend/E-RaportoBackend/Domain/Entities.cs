@@ -336,32 +336,52 @@ public class DuplicateCandidate
 }
 
 /// <summary>
-/// A photo on <see cref="ReportId"/> perceptually matches a photo already used on
-/// <see cref="MatchedReportId"/> — the same picture, or a lightly-edited copy of it, reused across two
-/// reports. Deliberately NOT a <see cref="DuplicateCandidate"/>: those two reports are not necessarily
-/// describing the same physical incident (a recycled stock photo, or an old "before" photo reused to
-/// claim a fixed problem is still broken, both point at two genuinely different situations), so
-/// confirming this must never merge anything. It only ever asks a human to look.
+/// One reason a report might be worth a human fraud review — never proof on its own. Every automated
+/// <see cref="Kind"/> here is a narrow, explainable, single-purpose check (a perceptual hash, a distance
+/// calculation, one calibrated Claude vision question) rather than one model asked to render a verdict —
+/// the same discipline <see cref="Services.PhotoReuseDetectionService"/> already committed to, now shared
+/// by every reason in this list. <see cref="FraudFlagKind.StaffFlagged"/> is the deliberate exception:
+/// human judgement, for whatever an algorithm structurally can't catch. Nothing here ever touches the
+/// report itself — nothing is merged, blocked, or auto-rejected. A flag only ever asks a clerk to look,
+/// and only a clerk's own review changes anything (this is the "stats only, no automatic consequence"
+/// version — see AnalyticsController for where a confirmed flag actually surfaces).
 /// </summary>
-public class PhotoReuseFlag
+public class FraudFlag
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
-    /// <summary>The newer report — the one whose upload triggered the match.</summary>
+    /// <summary>The report the flag is actually about.</summary>
     public Guid ReportId { get; set; }
     public Report? Report { get; set; }
 
-    /// <summary>The existing report whose photo it matches.</summary>
-    public Guid MatchedReportId { get; set; }
-    public Report? MatchedReport { get; set; }
+    /// <summary>Only set for <see cref="FraudFlagKind.PhotoReuse"/> and
+    /// <see cref="FraudFlagKind.TemplatedText"/> — the other report the pairing is against.</summary>
+    public Guid? RelatedReportId { get; set; }
+    public Report? RelatedReport { get; set; }
 
-    /// <summary>Bits differing between the two dHashes, out of 64 — 0 means visually identical after
-    /// re-encoding. Shown to staff as-is; no black-box "confidence", just the actual number.</summary>
-    public int HammingDistance { get; set; }
+    public FraudFlagKind Kind { get; set; }
 
-    public PhotoReuseReviewStatus ReviewStatus { get; set; } = PhotoReuseReviewStatus.Pending;
+    /// <summary>Always a plain sentence explaining the flag, never a bare score — a clerk who can't see
+    /// why something was flagged can't sensibly decide what to do with it. AI-written for automated
+    /// kinds, staff-written for <see cref="FraudFlagKind.StaffFlagged"/>.</summary>
+    public string Reasoning { get; set; } = string.Empty;
+
+    /// <summary>Meaning depends on <see cref="Kind"/>: Hamming distance out of 64 (PhotoReuse), metres
+    /// (GpsMismatch), word-overlap 0-1 (TemplatedText), Claude's own calibrated confidence 0-1 (the four
+    /// vision checks). Null for StaffFlagged — a clerk's judgement doesn't get a fake number attached.</summary>
+    public double? Score { get; set; }
+
+    public FraudReviewStatus ReviewStatus { get; set; } = FraudReviewStatus.Pending;
     public Guid? ReviewedByStaffId { get; set; }
+    public StaffUser? ReviewedByStaff { get; set; }
     public DateTime? ReviewedAt { get; set; }
+
+    /// <summary>Set only for <see cref="FraudFlagKind.StaffFlagged"/> — who raised it. Null for every
+    /// automated kind, so the UI can tell "the system caught this" from "a clerk called this out" at a
+    /// glance without inspecting <see cref="Kind"/>.</summary>
+    public Guid? RaisedByStaffId { get; set; }
+    public StaffUser? RaisedByStaff { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

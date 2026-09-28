@@ -64,7 +64,7 @@ public static class RealtimeEntities
     public const string DuplicateCandidate = "duplicateCandidate";
     public const string CitizenProfile = "citizenProfile";
     public const string SystemicPattern = "systemicPattern";
-    public const string PhotoReuseFlag = "photoReuseFlag";
+    public const string FraudFlag = "fraudFlag";
 }
 
 public static class RealtimeActions

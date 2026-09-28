@@ -25,7 +25,7 @@ const NAV = [
   { to: '/reports', label: 'Raportet', icon: '▤' },
   { to: '/duplicates', label: 'Dublikatat', icon: '⧉' },
   { to: '/patterns', label: 'Modelet', icon: '◈' },
-  { to: '/photo-reuse', label: 'Foto të ripërdorura', icon: '⎘' },
+  { to: '/fraud', label: 'Mashtrime të mundshme', icon: '⚠' },
   { to: '/analytics', label: 'Analitika', icon: '◔' },
 ];
 
@@ -73,7 +73,7 @@ export function Shell() {
           {NAV.map(item => {
             const badge = item.to === '/duplicates' ? summary?.pendingDuplicateReviews
               : item.to === '/patterns' ? summary?.openSystemicPatterns
-              : item.to === '/photo-reuse' ? summary?.pendingPhotoReuseReviews
+              : item.to === '/fraud' ? summary?.pendingFraudFlags
               : undefined;
             return (
               <NavLink

@@ -28,6 +28,8 @@ public class ReportTriageService(
     DuplicateDetectionService duplicates,
     SystemicPatternDetectionService patterns,
     PhotoReuseDetectionService photoReuse,
+    GpsMismatchService gpsMismatch,
+    Ai.FraudSignalService fraud,
     ReportWorkflow workflow,
     IRealtimeBroadcaster realtime,
     ILogger<ReportTriageService> logger)
@@ -171,13 +173,19 @@ public class ReportTriageService(
         var pattern = await patterns.EvaluateAsync(report, category, ct);
         if (pattern is not null) realtime.PatternChanged(pattern.Id, RealtimeActions.Created);
 
-        // Never surfaced to the citizen — see PhotoReuseController. A staff-only review queue, same as
-        // the pattern and duplicate lenses above, just aimed at a different question.
-        var reuseFlags = await photoReuse.ScanAsync(report, ct);
-        foreach (var flag in reuseFlags)
+        // Every fraud signal lands in the same place — never surfaced to the citizen, staff-only review
+        // queue, same "system proposes, human decides" shape as the pattern and duplicate lenses above.
+        var fraudFlags = new List<FraudFlag>();
+        fraudFlags.AddRange(await photoReuse.ScanAsync(report, ct));
+        fraudFlags.AddRange(gpsMismatch.Evaluate(report));
+        if (await duplicates.ScanForTemplatedTextAsync(report, ct) is { } templatedText)
+            fraudFlags.Add(templatedText);
+        fraudFlags.AddRange(await fraud.AnalyzeAsync(report, images, ct));
+
+        foreach (var flag in fraudFlags)
         {
-            db.PhotoReuseFlags.Add(flag);
-            realtime.PhotoReuseFlagged(flag.Id, RealtimeActions.Created);
+            db.FraudFlags.Add(flag);
+            realtime.FraudFlagged(flag.Id, RealtimeActions.Created);
         }
 
         realtime.ReportChanged(report, RealtimeActions.Created);

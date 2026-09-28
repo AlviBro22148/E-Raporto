@@ -143,6 +143,9 @@ export interface ReportDetail {
   allowedNextStatuses: ReportStatus[];
   /** The full systemic pattern this report belongs to, staff-only. Null when it belongs to none. */
   pattern?: SystemicPattern | null;
+  /** Every fraud flag naming this report, either side of a pairing, dismissed ones included — the full
+   *  history, not just what's still pending in the queue. */
+  fraudFlags?: FraudFlag[] | null;
 }
 
 /* ── Accounts ────────────────────────────────────────────────────────────── */
@@ -175,20 +178,36 @@ export interface DuplicateReviewItem {
   createdAt: string;
 }
 
+/** Every reason a report might be worth a fraud review, unified — see the backend's FraudFlagKind for
+ *  what each kind actually checks. relatedReport is only set for PhotoReuse and TemplatedText, the two
+ *  kinds that point at a pairing rather than a single report. */
+export type FraudFlagKind =
+  | 'PhotoReuse' | 'DescriptionMismatch' | 'SeverityExaggeration' | 'StockPhoto'
+  | 'PhotoOfPhoto' | 'GpsMismatch' | 'TemplatedText' | 'StaffFlagged';
+export type FraudReviewStatus = 'Pending' | 'Acknowledged' | 'Dismissed';
+
 /**
- * Two reports whose photos matched a deterministic perceptual hash — the same picture, or a lightly
- * edited copy of it, reused across two different reports. Never proof of fraud on its own (a citizen
- * can legitimately resubmit their own photo), so nothing on either report changes from this — same
- * "system proposes, human decides" shape as duplicates and patterns.
+ * None of these are proof on their own — reusing a photo, text that reads templated, a photo whose GPS
+ * doesn't match the pin, all have an honest explanation as often as a dishonest one. Nothing here ever
+ * changes either report; same "system proposes, human decides" shape as duplicates and patterns.
  */
-export interface PhotoReuseFlag {
+export interface FraudFlag {
   flagId: string;
+  kind: FraudFlagKind;
+  status: FraudReviewStatus;
+  reasoning: string;
+  /** Meaning depends on kind: Hamming distance out of 64 (PhotoReuse), metres (GpsMismatch), 0-1
+   *  word-overlap (TemplatedText), Claude's own calibrated confidence 0-1 (the four vision checks).
+   *  Null for StaffFlagged — a clerk's judgement doesn't get a fake number attached. */
+  score?: number | null;
   report: ReportListItem;
-  matchedReport: ReportListItem;
-  /** Bits differing out of 64, 0-6. Lower means a closer visual match. */
-  hammingDistance: number;
+  relatedReport?: ReportListItem | null;
+  raisedByStaffName?: string | null;
+  reviewedByStaffName?: string | null;
   createdAt: string;
 }
+
+export interface FraudKindStat { kind: FraudFlagKind; count: number }
 
 export interface CategoryStat {
   code: string; nameSq: string; nameEn: string; colorHex: string; count: number; avgHoursToResolution?: number;
@@ -208,8 +227,15 @@ export interface AnalyticsSummary {
   byCategory: CategoryStat[]; byStatus: StatusStat[]; byDepartment: DepartmentStat[];
   /** Systemic patterns not yet dismissed — Pending or Acknowledged. */
   openSystemicPatterns: number;
-  /** Reused-photo flags awaiting a staff decision. */
-  pendingPhotoReuseReviews: number;
+  /** Fraud flags awaiting a staff decision — every kind, automated and staff-raised. */
+  pendingFraudFlags: number;
+  /** Flags a clerk agreed were worth following up on. Stats only — no automatic effect on the
+   *  reporter's account, a deliberate scope decision for the pilot. */
+  confirmedFraudFlags: number;
+  /** Flags a clerk marked a false positive. */
+  dismissedFraudFlags: number;
+  /** Breakdown of the currently-pending flags by kind. */
+  fraudFlagsByKind: FraudKindStat[];
 }
 
 export interface DuplicateCandidate {
@@ -302,6 +328,25 @@ export async function clearSession(): Promise<void> {
   await AsyncStorage.multiRemove([TOKEN_KEY, KIND_KEY]);
 }
 
+/**
+ * Memoizes a reference-data fetch for the lifetime of the app session. Categories, departments and the
+ * municipality record are seeded once and effectively never change during a pilot, but every screen that
+ * needs one calls the plain `api.x()` function independently — the new-report form, the map tab, and the
+ * staff report screen were each hitting the network for the same handful of rows on every single mount.
+ * Wrapping the fetcher here means the first caller pays for the request and everyone after it — on that
+ * screen or any other — gets the already-resolved value, with no new caching library and no call-site
+ * changes. Resets naturally on app restart, which is exactly when it's safe to refresh anyway.
+ */
+function cachedOnce<T>(fetcher: () => Promise<T>): () => Promise<T> {
+  let inFlight: Promise<T> | null = null;
+  return () => {
+    if (!inFlight) {
+      inFlight = fetcher().catch(err => { inFlight = null; throw err; });
+    }
+    return inFlight;
+  };
+}
+
 /* ── HTTP ────────────────────────────────────────────────────────────────── */
 
 export class ApiError extends Error {
@@ -385,9 +430,9 @@ export const api = {
   meStaff: () => request<StaffUser>('/api/v1/auth/me'),
 
   /* ── Reference data ───────────────────────────────────────────────────── */
-  municipality: () => request<Municipality>('/api/v1/municipality'),
-  categories: () => request<Category[]>('/api/v1/categories'),
-  departments: () => request<DepartmentRef[]>('/api/v1/departments'),
+  municipality: cachedOnce(() => request<Municipality>('/api/v1/municipality')),
+  categories: cachedOnce(() => request<Category[]>('/api/v1/categories')),
+  departments: cachedOnce(() => request<DepartmentRef[]>('/api/v1/departments')),
 
   mapPins: (params?: { lat?: number; lng?: number; radiusM?: number; limit?: number }) => {
     const query = new URLSearchParams();
@@ -403,6 +448,7 @@ export const api = {
 
   createReport: (body: {
     description: string; latitude: number; longitude: number;
+    deviceLatitude: number; deviceLongitude: number;
     addressText?: string; photoUrls?: string[]; categoryCodeHint?: string;
   }) => request<CreateReportResponse>('/api/v1/reports', {
     method: 'POST',
@@ -495,12 +541,17 @@ export const api = {
   staffRefreshPattern: (id: string) =>
     request<SystemicPattern>(`/api/v1/staff/patterns/${id}/refresh`, { method: 'POST' }),
 
-  /* ── Staff — reused photos ───────────────────────────────────────────── */
-  staffPhotoReuseFlags: () => request<PhotoReuseFlag[]>('/api/v1/staff/photo-reuse'),
-  staffAcknowledgePhotoReuse: (id: string) =>
-    request<void>(`/api/v1/staff/photo-reuse/${id}/acknowledge`, { method: 'POST' }),
-  staffDismissPhotoReuse: (id: string) =>
-    request<void>(`/api/v1/staff/photo-reuse/${id}/dismiss`, { method: 'POST' }),
+  /* ── Staff — fraud review ─────────────────────────────────────────────── */
+  staffFraudFlags: () => request<FraudFlag[]>('/api/v1/staff/fraud'),
+  staffAcknowledgeFraudFlag: (id: string) =>
+    request<void>(`/api/v1/staff/fraud/${id}/acknowledge`, { method: 'POST' }),
+  staffDismissFraudFlag: (id: string) =>
+    request<void>(`/api/v1/staff/fraud/${id}/dismiss`, { method: 'POST' }),
+  /** A clerk's own fraud call on a specific report — the one kind with no automated check behind it. */
+  staffRaiseFraudFlag: (reportId: string, reason: string) =>
+    request<FraudFlag>(`/api/v1/staff/reports/${reportId}/fraud-flags`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }),
 
   /**
    * Uploads a photo taken or picked on the device.

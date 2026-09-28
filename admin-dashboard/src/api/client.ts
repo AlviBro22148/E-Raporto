@@ -1,18 +1,23 @@
 import type {
-  AnalyticsSummaryDto, CategoryDto, DepartmentDto, DuplicateReviewItemDto, LoginResponse,
-  MunicipalityDto, PagedResult, PhotoReuseFlagDto, ReportDetailDto, ReportDto, ReportFilters,
+  AnalyticsSummaryDto, CategoryDto, DepartmentDto, DuplicateReviewItemDto, FraudFlagDto, LoginResponse,
+  MunicipalityDto, PagedResult, ReportDetailDto, ReportDto, ReportFilters,
   ReportListItemDto, ReportPriority, ReportStatus, StaffUserDto, SystemicPatternDto, TrendPoint,
 } from './types';
 
 /** Localhost by default so a fresh clone runs with no configuration; override with VITE_API_URL. */
 export const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:5216';
 
-const TOKEN_KEY = 'e-raporto.token';
-
-export const tokenStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+/**
+ * The staff session itself lives in an httpOnly cookie the backend sets on login — deliberately
+ * unreadable from here, so a browser-side XSS bug has nothing to steal. This module only tracks
+ * whether *this page load* has established one, which is enough to tell "the login form just rejected
+ * a bad password" (no session yet) apart from "a previously-good session just went stale" (session
+ * existed, now doesn't) — see the 401 handling in `request` below.
+ */
+export const session = {
+  active: false,
+  mark: () => { session.active = true; },
+  clear: () => { session.active = false; },
 };
 
 export class ApiError extends Error {
@@ -33,20 +38,20 @@ export const mediaUrl = (path?: string) =>
   !path ? undefined : path.startsWith('http') ? path : `${API_URL}${path}`;
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = tokenStore.get();
   const headers = new Headers(init.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  // credentials: 'include' — the session cookie rides every request automatically; there is no token
+  // for this code to attach by hand any more.
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include' });
 
-  if (response.status === 401 && token) {
-    // Gated on `token`: this is only ever a *previously authenticated* request going bad (the
-    // token expired, was revoked, or — after a database reset — still parses fine but names a
-    // staff id that no longer exists). A 401 with no token attached is the login call itself
-    // rejecting bad credentials, which is a completely different situation and must not clear a
-    // session that was never established or bounce someone off the login page they're already on.
-    tokenStore.clear();
+  if (response.status === 401 && session.active) {
+    // Gated on `session.active`: this is only ever a *previously authenticated* request going bad
+    // (the cookie's token expired, was revoked, or — after a database reset — still parses fine but
+    // names a staff id that no longer exists). A 401 with no session established is the login call
+    // itself rejecting bad credentials, which is a completely different situation and must not bounce
+    // someone off the login page they're already on.
+    session.clear();
     if (!location.pathname.startsWith('/login')) location.assign('/login');
     throw new ApiError(401, 'Sesioni ka skaduar.');
   }
@@ -92,6 +97,7 @@ export const api = {
     }),
 
   me: () => request<StaffUserDto>('/api/v1/auth/me'),
+  logout: () => request<void>('/api/v1/auth/logout', { method: 'POST' }),
 
   categories: () => request<CategoryDto[]>('/api/v1/categories'),
   departments: () => request<DepartmentDto[]>('/api/v1/departments'),
@@ -124,12 +130,12 @@ export const api = {
 
   /**
    * The case dossier as a .docx. Not routed through `request()`: the response is a binary Word
-   * document, not JSON, and the endpoint needs the bearer token, so it cannot simply be a link.
+   * document, not JSON — it still needs the session cookie, via `credentials: 'include'`, since a
+   * plain <a href> download link wouldn't get the 401-handling `request()` gives every other call.
    */
   async downloadDossier(id: string, publicRef: string): Promise<void> {
-    const token = tokenStore.get();
     const response = await fetch(`${API_URL}/api/v1/staff/reports/${id}/dossier`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -170,10 +176,15 @@ export const api = {
   refreshPattern: (id: string) =>
     request<SystemicPatternDto>(`/api/v1/staff/patterns/${id}/refresh`, { method: 'POST' }),
 
-  /** Pending reused-photo flags, most recent first. */
-  photoReuseFlags: () => request<PhotoReuseFlagDto[]>('/api/v1/staff/photo-reuse'),
-  acknowledgePhotoReuseFlag: (id: string) =>
-    request<void>(`/api/v1/staff/photo-reuse/${id}/acknowledge`, { method: 'POST' }),
-  dismissPhotoReuseFlag: (id: string) =>
-    request<void>(`/api/v1/staff/photo-reuse/${id}/dismiss`, { method: 'POST' }),
+  /** Pending fraud flags, most recent first — every kind, automated and staff-raised. */
+  fraudFlags: () => request<FraudFlagDto[]>('/api/v1/staff/fraud'),
+  acknowledgeFraudFlag: (id: string) =>
+    request<void>(`/api/v1/staff/fraud/${id}/acknowledge`, { method: 'POST' }),
+  dismissFraudFlag: (id: string) =>
+    request<void>(`/api/v1/staff/fraud/${id}/dismiss`, { method: 'POST' }),
+  /** A clerk's own fraud call on a specific report — the one kind with no automated check behind it. */
+  raiseFraudFlag: (reportId: string, reason: string) =>
+    request<FraudFlagDto>(`/api/v1/staff/reports/${reportId}/fraud-flags`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }),
 };

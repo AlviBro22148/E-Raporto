@@ -132,6 +132,12 @@ export function AnalyticsPage() {
           hint="grupe raportesh nën shqyrtim"
           tone={summary.openSystemicPatterns > 0 ? 'warning' : 'default'}
         />
+        <StatTile
+          label="Mashtrime të mundshme"
+          value={summary.pendingFraudFlags}
+          hint={`${summary.confirmedFraudFlags} pranuar · ${summary.dismissedFraudFlags} raste të rreme`}
+          tone={summary.pendingFraudFlags > 0 ? 'warning' : 'default'}
+        />
       </div>
 
       {/*
@@ -142,24 +148,14 @@ export function AnalyticsPage() {
         className="card card-pad"
         style={{ marginBottom: 18, borderLeft: '3px solid var(--brand-600)' }}
       >
-        <div className="row-wrap" style={{ gap: 28, alignItems: 'flex-start' }}>
-          <div>
-            <div className="label">Përputhshmëria me AI-në</div>
-            <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
-              <span style={{ fontSize: 32, fontWeight: 690, letterSpacing: '-0.02em' }}>
-                {agreementPct == null ? '—' : `${agreementPct}%`}
-              </span>
-              <span className="muted" style={{ fontSize: 13 }}>
-                {summary.aiOverriddenCount} ndryshime nga {summary.aiClassifiedCount} klasifikime
-              </span>
-            </div>
-          </div>
-          <p className="dim" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: 560, flex: 1 }}>
-            Kjo është përqindja e klasifikimeve që stafi <strong>nuk</strong> i ndryshoi — jo saktësi e
-            matur ndaj një grupi referencë. Është treguesi më i ndershëm që kemi sot: nëse stafi fillon
-            të korrigjojë shpesh, numri bie menjëherë dhe ne e shohim. Çdo sugjerim mbetet i
-            ndryshueshëm, dhe sugjerimi origjinal ruhet edhe pas korrigjimit.
-          </p>
+        <div className="label">Përputhshmëria me AI-në</div>
+        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+          <span style={{ fontSize: 32, fontWeight: 690, letterSpacing: '-0.02em' }}>
+            {agreementPct == null ? '—' : `${agreementPct}%`}
+          </span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {summary.aiOverriddenCount} ndryshime nga {summary.aiClassifiedCount} klasifikime
+          </span>
         </div>
       </div>
 
@@ -173,49 +169,37 @@ export function AnalyticsPage() {
         className="card card-pad"
         style={{ marginBottom: 18, borderLeft: '3px solid var(--success)' }}
       >
-        <div className="row-wrap" style={{ gap: 28, alignItems: 'flex-start' }}>
-          <div>
-            <div className="label">Zgjidhje të verifikuara nga qytetari</div>
-            <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
-              <span style={{ fontSize: 32, fontWeight: 690, letterSpacing: '-0.02em' }}>
-                {verifiedPct == null ? '—' : `${verifiedPct}%`}
-              </span>
-              <span className="muted" style={{ fontSize: 13 }}>
-                {summary.verificationsConfirmed} nga {summary.resolvedReports} raste të shënuara si të zgjidhura
-              </span>
-            </div>
-            <div className="row-wrap" style={{ gap: 8, marginTop: 10 }}>
-              <span
-                className="chip"
-                style={{
-                  background: 'color-mix(in srgb, var(--success) 12%, transparent)',
-                  borderColor: 'color-mix(in srgb, var(--success) 32%, transparent)',
-                  color: 'var(--success)',
-                }}
-              >
-                ✓ {summary.verificationsConfirmed} konfirmuar
-              </span>
-              <span
-                className="chip"
-                style={{
-                  background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
-                  borderColor: 'color-mix(in srgb, var(--danger) 32%, transparent)',
-                  color: 'var(--danger)',
-                }}
-              >
-                ⚠ {summary.verificationsDisputed} kontestuar
-              </span>
-              <span className="chip">◷ {summary.verificationsAwaiting} pa përgjigje</span>
-            </div>
-          </div>
-          <p className="dim" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: 560, flex: 1 }}>
-            Kur bashkia e mbyll një rast, personi që e ka hapur pyetet nëse problemi është vërtet
-            rregulluar. Kjo përqindje llogaritet mbi <strong>të gjitha</strong> rastet e mbyllura, jo
-            vetëm mbi ata që u përgjigjën — heshtja numërohet si e paverifikuar. Prandaj numri nuk
-            përmirësohet duke pyetur më pak njerëz, por vetëm duke rregulluar më shumë probleme.
-            Diferenca mes {summary.resolvedReports} dhe {summary.verificationsConfirmed} është pjesa që
-            zakonisht nuk matet askund.
-          </p>
+        <div className="label">Zgjidhje të verifikuara nga qytetari</div>
+        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+          <span style={{ fontSize: 32, fontWeight: 690, letterSpacing: '-0.02em' }}>
+            {verifiedPct == null ? '—' : `${verifiedPct}%`}
+          </span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {summary.verificationsConfirmed} nga {summary.resolvedReports} raste të shënuara si të zgjidhura
+          </span>
+        </div>
+        <div className="row-wrap" style={{ gap: 8, marginTop: 10 }}>
+          <span
+            className="chip"
+            style={{
+              background: 'color-mix(in srgb, var(--success) 12%, transparent)',
+              borderColor: 'color-mix(in srgb, var(--success) 32%, transparent)',
+              color: 'var(--success)',
+            }}
+          >
+            ✓ {summary.verificationsConfirmed} konfirmuar
+          </span>
+          <span
+            className="chip"
+            style={{
+              background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              borderColor: 'color-mix(in srgb, var(--danger) 32%, transparent)',
+              color: 'var(--danger)',
+            }}
+          >
+            ⚠ {summary.verificationsDisputed} kontestuar
+          </span>
+          <span className="chip">◷ {summary.verificationsAwaiting} pa përgjigje</span>
         </div>
       </div>
 

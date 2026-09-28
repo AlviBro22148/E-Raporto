@@ -75,11 +75,12 @@ public class PhotoReuseDetectionService(AppDbContext db, ILogger<PhotoReuseDetec
 
     /// <summary>
     /// Compares this report's already-hashed photos against every other report's hashed photos and
-    /// queues a <see cref="PhotoReuseFlag"/> for the first match found per photo. Does not call
-    /// SaveChanges — the caller (<see cref="ReportTriageService"/>) owns the transaction, exactly like
-    /// <see cref="DuplicateDetectionService"/> and <see cref="SystemicPatternDetectionService"/> do.
+    /// queues a <see cref="FraudFlag"/> (<see cref="FraudFlagKind.PhotoReuse"/>) for the first match found
+    /// per photo. Does not call SaveChanges — the caller (<see cref="ReportTriageService"/>) owns the
+    /// transaction, exactly like <see cref="DuplicateDetectionService"/> and
+    /// <see cref="SystemicPatternDetectionService"/> do.
     /// </summary>
-    public async Task<List<PhotoReuseFlag>> ScanAsync(Report report, CancellationToken ct = default)
+    public async Task<List<FraudFlag>> ScanAsync(Report report, CancellationToken ct = default)
     {
         var ownHashes = report.Photos
             .Where(p => p.PerceptualHash is not null)
@@ -93,7 +94,7 @@ public class PhotoReuseDetectionService(AppDbContext db, ILogger<PhotoReuseDetec
             .ToListAsync(ct);
         if (existing.Count == 0) return [];
 
-        var flags = new List<PhotoReuseFlag>();
+        var flags = new List<FraudFlag>();
         var alreadyFlaggedReports = new HashSet<Guid>();
 
         foreach (var ownHash in ownHashes)
@@ -110,11 +111,16 @@ public class PhotoReuseDetectionService(AppDbContext db, ILogger<PhotoReuseDetec
             if (match == default) continue;
 
             alreadyFlaggedReports.Add(match.ReportId);
-            flags.Add(new PhotoReuseFlag
+            flags.Add(new FraudFlag
             {
                 ReportId = report.Id,
-                MatchedReportId = match.ReportId,
-                HammingDistance = match.Distance,
+                RelatedReportId = match.ReportId,
+                Kind = FraudFlagKind.PhotoReuse,
+                Score = match.Distance,
+                Reasoning = match.Distance == 0
+                    ? "Fotoja është identike me një foto të përdorur tashmë në një raport tjetër."
+                    : $"Fotoja përputhet {match.Distance} bit nga 64 me një foto të përdorur tashmë " +
+                      "në një raport tjetër — ndoshta e njëjta foto, e ripërpunuar lehtë.",
             });
         }
 

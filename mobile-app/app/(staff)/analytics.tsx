@@ -134,6 +134,17 @@ export default function StaffAnalyticsScreen() {
           {tr('analytics.duplicatesLine', { merged: data.duplicatesMerged, pending: data.pendingDuplicateReviews })}
         </Caption>
       </Card>
+
+      <Card style={{ gap: space.xs }}>
+        <Heading>{tr('analytics.fraudTitle')}</Heading>
+        <Caption>
+          {tr('analytics.fraudLine', {
+            pending: data.pendingFraudFlags,
+            confirmed: data.confirmedFraudFlags,
+            dismissed: data.dismissedFraudFlags,
+          })}
+        </Caption>
+      </Card>
     </ScrollView>
   );
 }

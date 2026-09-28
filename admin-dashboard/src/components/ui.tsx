@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
-import type { ClassificationSource, ConnectionType, ReportPriority, ReportStatus } from '../api/types';
+import type {
+  ClassificationSource, ConnectionType, FraudFlagKind, FraudReviewStatus, ReportPriority, ReportStatus,
+} from '../api/types';
 
 /* ── Localised labels ─────────────────────────────────────────────────────── */
 
@@ -82,6 +84,36 @@ export function historyEntryKind(entry: { fromStatus?: string | null; toStatus: 
 }
 
 export const HISTORY_KIND_LABEL = { confirmed: 'I konfirmuar', disputed: 'I kontestuar' } as const;
+
+/** Every reason a report might be worth a fraud review — see the backend's FraudFlagKind. */
+export const FRAUD_KIND_LABEL: Record<FraudFlagKind, string> = {
+  PhotoReuse: 'Foto e ripërdorur',
+  DescriptionMismatch: 'Përshkrimi nuk përputhet me foton',
+  SeverityExaggeration: 'Ashpërsi e ekzagjeruar',
+  StockPhoto: 'Foto e ngjashme me stok',
+  PhotoOfPhoto: 'Foto e një fotoje ose ekrani',
+  GpsMismatch: 'Vendndodhja e fotos nuk përputhet',
+  TemplatedText: 'Tekst i kopjuar nga një raport tjetër',
+  StaffFlagged: 'Shënuar nga stafi',
+};
+
+/** brand for StaffFlagged — a person said this, not an algorithm — everything else warning/danger. */
+export const FRAUD_KIND_COLOR: Record<FraudFlagKind, string> = {
+  PhotoReuse: 'var(--warning)',
+  DescriptionMismatch: 'var(--warning)',
+  SeverityExaggeration: 'var(--danger)',
+  StockPhoto: 'var(--warning)',
+  PhotoOfPhoto: 'var(--warning)',
+  GpsMismatch: 'var(--warning)',
+  TemplatedText: 'var(--warning)',
+  StaffFlagged: 'var(--brand-600)',
+};
+
+export const FRAUD_STATUS_LABEL: Record<FraudReviewStatus, string> = {
+  Pending: 'Në pritje',
+  Acknowledged: 'Pranuar për ndjekje',
+  Dismissed: 'Rast i rremë',
+};
 
 /* ── Badges ───────────────────────────────────────────────────────────────── */
 

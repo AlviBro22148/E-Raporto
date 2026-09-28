@@ -34,10 +34,6 @@ export function DuplicatesPage() {
     <div style={{ padding: '22px 26px 48px', maxWidth: 1280, margin: '0 auto' }}>
       <header style={{ marginBottom: 18 }}>
         <h1>Radha e dublikimeve</h1>
-        <p className="muted" style={{ fontSize: 13, marginTop: 2, maxWidth: 660 }}>
-          Sistemi propozon; ju vendosni. Bashkimi e lidh raportin e ri me atë ekzistues dhe rrit numrin
-          e konfirmimeve — asgjë nuk fshihet dhe qytetari njoftohet.
-        </p>
       </header>
 
       {isLoading ? <Spinner />

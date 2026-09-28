@@ -21,8 +21,9 @@ public interface IRealtimeBroadcaster
     /// <summary>A systemic pattern was detected, or a pending one was acknowledged/dismissed by staff.</summary>
     void PatternChanged(Guid patternId, string action);
 
-    /// <summary>A reused-photo match was detected, or a pending one was acknowledged/dismissed by staff.</summary>
-    void PhotoReuseFlagged(Guid flagId, string action);
+    /// <summary>Any fraud flag — automated or staff-raised — was created, or a pending one was
+    /// acknowledged/dismissed.</summary>
+    void FraudFlagged(Guid flagId, string action);
 
     /// <summary>This citizen's own profile changed, for their other signed-in devices.</summary>
     void CitizenProfileUpdated(Guid citizenUserId);
@@ -112,13 +113,12 @@ public class RealtimeBroadcaster(
             async ct => await hub.Clients.Group(RealtimeGroups.Staff).EntityChanged(payload)));
     }
 
-    public void PhotoReuseFlagged(Guid flagId, string action)
+    public void FraudFlagged(Guid flagId, string action)
     {
         var payload = new EntityChangedEvent(
-            RealtimeEntities.PhotoReuseFlag, action, flagId, null, null, DateTime.UtcNow);
+            RealtimeEntities.FraudFlag, action, flagId, null, null, DateTime.UtcNow);
 
-        // Staff-only, same reasoning as PatternChanged: internal review tooling, never surfaced publicly.
-        _pending.Add(($"{RealtimeEntities.PhotoReuseFlag}:{action}:{flagId}",
+        _pending.Add(($"{RealtimeEntities.FraudFlag}:{action}:{flagId}",
             async ct => await hub.Clients.Group(RealtimeGroups.Staff).EntityChanged(payload)));
     }
 

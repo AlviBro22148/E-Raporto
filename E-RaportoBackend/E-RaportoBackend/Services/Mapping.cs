@@ -225,6 +225,13 @@ public static class Mapping
         r.Category?.Code, r.Category?.ColorHex ?? "#666666", r.ConfirmationCount, r.CreatedAt,
         verifiedConfirmed);
 
+    /// <summary><paramref name="report"/> and <paramref name="relatedReport"/> must already be the
+    /// resolved entities — this never queries, same reason every other mapper here doesn't.</summary>
+    public static FraudFlagDto ToDto(this FraudFlag f, Report report, Report? relatedReport) => new(
+        f.Id, f.Kind.ToString(), f.ReviewStatus.ToString(), f.Reasoning, f.Score,
+        report.ToListItem(), relatedReport?.ToListItem(),
+        f.RaisedByStaff?.FullName, f.ReviewedByStaff?.FullName, f.CreatedAt);
+
     public static DuplicateCandidateDto ToDto(this DuplicateCandidate c, Report candidateReport) => new(
         c.Id,
         candidateReport.Id,

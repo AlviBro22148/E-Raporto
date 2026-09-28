@@ -116,6 +116,68 @@ public class DuplicateDetectionService(
         return top;
     }
 
+    /// <summary>
+    /// Near-identical wording is exactly what <see cref="ScanAsync"/> already rewards — as a duplicate —
+    /// when the two reports are close together, which is the honest, common case: two neighbours
+    /// describing the same pothole often land on similar phrasing. What that method structurally can't
+    /// see is the same paragraph reused far away, since it never looks past <see cref="DuplicateDetectionOptions.SearchRadiusMeters"/>.
+    /// This is that missing half: no distance limit, but a much higher bar for how similar the text has
+    /// to be — this is hunting near-verbatim reuse, not "similar topic", which is a completely different
+    /// and far weaker signal than two people independently describing the same physical thing.
+    /// </summary>
+    public async Task<FraudFlag?> ScanForTemplatedTextAsync(Report report, CancellationToken ct = default)
+    {
+        var since = DateTime.UtcNow.AddDays(-_opt.LookbackDays);
+
+        var others = await db.Reports.AsNoTracking()
+            .Where(r => r.Id != report.Id
+                        && r.MunicipalityId == report.MunicipalityId
+                        && r.Status != ReportStatus.Merged
+                        && r.CreatedAt >= since)
+            .Select(r => new { r.Id, r.Latitude, r.Longitude, r.Description })
+            .ToListAsync(ct);
+        if (others.Count == 0) return null;
+
+        // Description only, deliberately not Title too (unlike ScanAsync above): the title is the AI's
+        // own paraphrase, generated fresh per report, and two reports built from identical citizen text
+        // routinely land on different titles — "kapak kanalizimi" vs "kapak pusetash" for the same
+        // manhole cover. Mixing that noise in was diluting the exact signal this method exists to catch;
+        // the description is the one field that is actually the citizen's own words.
+        var reportTokens = Tokenize(report.Description);
+        if (reportTokens.Count < 5) return null;   // too short for word-overlap to mean anything
+
+        (Guid Id, double Distance, double Similarity)? best = null;
+
+        foreach (var other in others)
+        {
+            var distance = HaversineMeters(report.Latitude, report.Longitude, other.Latitude, other.Longitude);
+            if (distance <= _opt.SearchRadiusMeters) continue;   // ScanAsync's territory, not this one's
+
+            var similarity = JaccardSimilarity(reportTokens, Tokenize(other.Description));
+            if (similarity < TemplatedTextThreshold) continue;
+            if (best is null || similarity > best.Value.Similarity) best = (other.Id, distance, similarity);
+        }
+
+        if (best is not { } match) return null;
+
+        logger.LogInformation("Report {Ref}: templated-text match against {OtherId} ({Similarity:P0} similar, {Distance:N0}m away)",
+            report.PublicRef, match.Id, match.Similarity, match.Distance);
+
+        return new FraudFlag
+        {
+            ReportId = report.Id,
+            RelatedReportId = match.Id,
+            Kind = FraudFlagKind.TemplatedText,
+            Score = Math.Round(match.Similarity, 3),
+            Reasoning = $"Teksti përputhet {Math.Round(match.Similarity * 100):N0}% me një raport tjetër " +
+                        $"{Math.Round(match.Distance):N0} metra larg — shumë larg për të qenë i njëjti problem.",
+        };
+    }
+
+    /// <summary>Well above ScanAsync's own similarity contribution — this is meant to catch reused
+    /// wording, not two people who happen to describe the same kind of problem similarly.</summary>
+    private const double TemplatedTextThreshold = 0.80;
+
     /// <summary>Great-circle distance in metres.</summary>
     public static double HaversineMeters(double lat1, double lng1, double lat2, double lng2)
     {

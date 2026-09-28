@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, tokenStore } from '../api/client';
+import { api, session } from '../api/client';
 import type { StaffUserDto } from '../api/types';
 
 interface AuthState {
@@ -17,15 +17,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<StaffUserDto | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // A token in localStorage is a claim, not proof — validate it before rendering the dashboard,
-  // otherwise every panel renders and then fails in a cascade of 401s.
+  // The session lives in an httpOnly cookie this code can't read — so instead of checking for a
+  // stored token before deciding whether to ask, just ask. A browser with no valid cookie gets a
+  // clean 401 back, which is no more expensive than the check it replaces.
   useEffect(() => {
-    if (!tokenStore.get()) { setLoading(false); return; }
-
     let cancelled = false;
     api.me()
-      .then(me => { if (!cancelled) setUser(me); })
-      .catch(() => { tokenStore.clear(); })
+      .then(me => { if (!cancelled) { session.mark(); setUser(me); } })
+      .catch(() => { /* not signed in — the login screen is the correct state, nothing to clean up */ })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
@@ -33,13 +32,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await api.login(email, password);
-    tokenStore.set(response.token);
+    session.mark();
     setUser(response.user);
   }, []);
 
   const logout = useCallback(() => {
-    tokenStore.clear();
+    session.clear();
     setUser(null);
+    void api.logout();
   }, []);
 
   const value = useMemo(() => ({ user, loading, login, logout }), [user, loading, login, logout]);

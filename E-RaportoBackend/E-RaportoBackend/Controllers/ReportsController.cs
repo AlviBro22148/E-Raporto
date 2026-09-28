@@ -37,12 +37,28 @@ public class ReportsController(
     [HttpPost]
     [EnableRateLimiting("submit-report")]
     [ProducesResponseType<CreateReportResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<CreateReportResponse>> Create(
         CreateReportRequest request, CancellationToken ct)
     {
         var citizen = await this.CurrentCitizenAsync(db, ct);
         if (citizen is null) return Unauthorized();
+
+        // Presence check, before anything else runs (including the AI classification call, which costs
+        // real money): the reporter's live GPS fix has to be inside Bashkia Elbasan right now. This is
+        // deliberately separate from the pin below — a citizen who found a problem and had to rush off
+        // can submit later from anywhere else inside the municipality and drag the pin back to the spot.
+        if (!MunicipalityBoundaryService.IsInsideElbasan(request.DeviceLatitude, request.DeviceLongitude))
+            return Problem(title: "Jashtë Bashkisë Elbasan",
+                detail: "Raportimi lejohet vetëm kur ndodheni brenda kufijve të Bashkisë Elbasan.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        // Jurisdiction check: the problem itself has to be somewhere Bashkia Elbasan can actually act on.
+        if (!MunicipalityBoundaryService.IsInsideElbasan(request.Latitude, request.Longitude))
+            return Problem(title: "Vendndodhja jashtë bashkisë",
+                detail: "Pika e shënuar në hartë duhet të jetë brenda kufijve të Bashkisë Elbasan.",
+                statusCode: StatusCodes.Status400BadRequest);
 
         var outcome = await triage.SubmitAsync(request, citizen, ct);
         var report = outcome.Report;

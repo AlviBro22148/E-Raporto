@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, mediaUrl } from '../api/client';
 import type { ReportPriority, ReportStatus } from '../api/types';
 import {
-  CONNECTION_COLOR, CONNECTION_HINT, CONNECTION_LABEL, Card, CategoryChip, ErrorState, HISTORY_KIND_LABEL,
-  PRIORITY_LABEL, PriorityBadge, SOURCE_LABEL, SlaBadge, Spinner, STATUS_LABEL, STATUS_VAR, StatusBadge,
-  formatDateTime, formatRelative, historyEntryKind,
+  CONNECTION_COLOR, CONNECTION_HINT, CONNECTION_LABEL, Card, CategoryChip, ErrorState, FRAUD_KIND_COLOR,
+  FRAUD_KIND_LABEL, FRAUD_STATUS_LABEL, HISTORY_KIND_LABEL, PRIORITY_LABEL, PriorityBadge, SOURCE_LABEL,
+  SlaBadge, Spinner, STATUS_LABEL, STATUS_VAR, StatusBadge, formatDateTime, formatRelative, historyEntryKind,
 } from '../components/ui';
 
 const PRIORITIES: ReportPriority[] = ['Low', 'Normal', 'High', 'Urgent'];
@@ -28,6 +28,7 @@ export function ReportDetailPage() {
 
   const [note, setNote] = useState('');
   const [overrideReason, setOverrideReason] = useState('');
+  const [fraudReason, setFraudReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -35,6 +36,7 @@ export function ReportDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['reports'] });
     queryClient.invalidateQueries({ queryKey: ['analytics'] });
     queryClient.invalidateQueries({ queryKey: ['duplicates'] });
+    queryClient.invalidateQueries({ queryKey: ['fraud'] });
     setNote('');
     setActionError(null);
   };
@@ -59,11 +61,15 @@ export function ReportDetailPage() {
     mutationFn: (publicRef: string) => api.downloadDossier(id, publicRef),
     onError,
   });
+  const fraudMutation = useMutation({
+    mutationFn: (reason: string) => api.raiseFraudFlag(id, reason),
+    onSuccess: () => { setFraudReason(''); invalidate(); }, onError,
+  });
 
   if (isLoading) return <div style={{ padding: 26 }}><Spinner /></div>;
   if (isError || !data) return <div style={{ padding: 26 }}><ErrorState error={error} onRetry={() => refetch()} /></div>;
 
-  const { report, statusHistory, duplicateCandidates, allowedNextStatuses, pattern } = data;
+  const { report, statusHistory, duplicateCandidates, allowedNextStatuses, pattern, fraudFlags } = data;
   const ai = report.ai;
   const busy = statusMutation.isPending || assignMutation.isPending || categoryMutation.isPending;
 
@@ -379,6 +385,41 @@ export function ReportDetailPage() {
               </p>
             </Card>
           )}
+
+          {/* The full history for this report specifically — dismissed flags stay visible here, unlike
+              the queue at /fraud, which only ever shows what's still pending a decision. */}
+          {fraudFlags && fraudFlags.length > 0 && (
+            <Card title={`Sinjale mashtrimi (${fraudFlags.length})`}>
+              <div className="stack-8">
+                {fraudFlags.map(flag => (
+                  <div
+                    key={flag.flagId}
+                    style={{
+                      padding: 12, borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)', background: 'var(--surface-2)',
+                    }}
+                  >
+                    <div className="row" style={{ justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: FRAUD_KIND_COLOR[flag.kind] }}>
+                        {FRAUD_KIND_LABEL[flag.kind]}
+                      </span>
+                      <span className="chip" style={{ fontSize: 10.5, flex: 'none' }}>
+                        {FRAUD_STATUS_LABEL[flag.status]}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: 0 }}>{flag.reasoning}</p>
+                    <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                      {flag.raisedByStaffName ? `${flag.raisedByStaffName} · ` : ''}
+                      {formatRelative(flag.createdAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+                Shqyrtojini te <Link to="/fraud">mashtrimet e mundshme</Link>.
+              </p>
+            </Card>
+          )}
         </div>
 
         {/* ── Right: the actions and the audit trail ───────────────────────── */}
@@ -579,6 +620,26 @@ export function ReportDetailPage() {
             </select>
           </Card>
           )}
+
+          {/* Independent of report status and of every automated check above — a clerk's own judgement
+              call for whatever those structurally can't catch. Stats only for now: confirming this never
+              touches the reporter's account, only what shows in Analytics. */}
+          <Card title="Shëno si mashtrim i mundshëm">
+            <textarea
+              className="textarea"
+              placeholder="Arsyeja — shihet vetëm nga stafi"
+              value={fraudReason}
+              onChange={e => setFraudReason(e.target.value)}
+              style={{ marginBottom: 10 }}
+            />
+            <button
+              className="btn btn-sm"
+              disabled={fraudMutation.isPending || fraudReason.trim().length < 5}
+              onClick={() => fraudMutation.mutate(fraudReason.trim())}
+            >
+              🖐  Shëno si mashtrim
+            </button>
+          </Card>
 
           <Card title="Historiku">
             <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>

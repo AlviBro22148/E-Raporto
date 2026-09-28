@@ -106,13 +106,33 @@ public enum PatternReviewStatus
     Dismissed = 2
 }
 
-/// <summary>Same shape as <see cref="PatternReviewStatus"/>, same reasoning: a photo-reuse flag is never
-/// "confirmed" into anything — reusing a photo isn't proof of fraud on its own (a citizen can legitimately
-/// resubmit their own photo), so a human always looks and either acknowledges it as worth following up
-/// on or dismisses it as a false positive. Neither action touches the two reports it points at.</summary>
-public enum PhotoReuseReviewStatus
+/// <summary>Mirrors <see cref="PatternReviewStatus"/> in shape, same reasoning: a flag is never "confirmed"
+/// into anything, only acknowledged as worth following up on or dismissed as a false positive. Neither
+/// action touches the report(s) a flag points at.</summary>
+public enum FraudReviewStatus
 {
     Pending = 0,
     Acknowledged = 1,
     Dismissed = 2
+}
+
+public enum FraudFlagKind
+{
+    /// <summary>Same or lightly-edited photo already used on another report.</summary>
+    PhotoReuse,
+    /// <summary>The photo doesn't plausibly depict what the description claims.</summary>
+    DescriptionMismatch,
+    /// <summary>The description claims a severity/urgency the photo doesn't support.</summary>
+    SeverityExaggeration,
+    /// <summary>The photo looks like stock/advertising photography, not an on-the-ground snapshot.</summary>
+    StockPhoto,
+    /// <summary>The photo appears to be a picture taken of another photo or a screen.</summary>
+    PhotoOfPhoto,
+    /// <summary>The photo's own embedded GPS is far from the pin the citizen placed.</summary>
+    GpsMismatch,
+    /// <summary>Near-identical wording to another report, too far apart to be the same incident —
+    /// genuine nearby duplicates are handled by <see cref="DuplicateCandidate"/> instead.</summary>
+    TemplatedText,
+    /// <summary>A clerk's own judgement call, for anything the automated checks above can't catch.</summary>
+    StaffFlagged,
 }

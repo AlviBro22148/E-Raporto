@@ -115,8 +115,23 @@ public class AnalyticsController(AppDbContext db) : ControllerBase
             .CountAsync(c => c.ReviewStatus == DuplicateReviewStatus.Pending, ct);
         var openPatterns = await db.SystemicPatterns
             .CountAsync(p => p.ReviewStatus != PatternReviewStatus.Dismissed, ct);
-        var pendingPhotoReuse = await db.PhotoReuseFlags
-            .CountAsync(f => f.ReviewStatus == PhotoReuseReviewStatus.Pending, ct);
+
+        // Stats only, deliberately: a confirmed flag here has no automatic effect on the reporter's
+        // account — the pilot's own scope, decided explicitly rather than left undecided. This is where
+        // it would surface if the municipality later asks for a real consequence attached.
+        var fraudByStatus = await db.FraudFlags
+            .GroupBy(f => f.ReviewStatus)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+        var pendingFraud = fraudByStatus.FirstOrDefault(g => g.Key == FraudReviewStatus.Pending)?.Count ?? 0;
+        var confirmedFraud = fraudByStatus.FirstOrDefault(g => g.Key == FraudReviewStatus.Acknowledged)?.Count ?? 0;
+        var dismissedFraud = fraudByStatus.FirstOrDefault(g => g.Key == FraudReviewStatus.Dismissed)?.Count ?? 0;
+
+        var fraudByKind = await db.FraudFlags
+            .Where(f => f.ReviewStatus == FraudReviewStatus.Pending)
+            .GroupBy(f => f.Kind)
+            .Select(g => new FraudKindStatDto(g.Key.ToString(), g.Count()))
+            .ToListAsync(ct);
 
         return Ok(new AnalyticsSummaryDto(
             TotalReports: reports.Count,
@@ -138,7 +153,10 @@ public class AnalyticsController(AppDbContext db) : ControllerBase
             VerificationsAwaiting: resolved.Count - currentOutcomes.Count,
             CitizenVerifiedRate: verifiedRate,
             OpenSystemicPatterns: openPatterns,
-            PendingPhotoReuseReviews: pendingPhotoReuse));
+            PendingFraudFlags: pendingFraud,
+            ConfirmedFraudFlags: confirmedFraud,
+            DismissedFraudFlags: dismissedFraud,
+            FraudFlagsByKind: fraudByKind));
     }
 
     /// <summary>Daily submitted-vs-resolved counts. Zero-filled so the chart has no gaps.</summary>

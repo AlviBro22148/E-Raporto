@@ -17,12 +17,23 @@ import {
   formatRelative,
 } from '../../src/components/ui';
 import { aiReasoning, categoryName, reportTitle, useLocale, useT } from '../../src/i18n';
+import { isInsideElbasan } from '../../src/geo';
 import { MIN_TARGET, radius, space, type, useTheme } from '../../src/theme';
 import { useAfterTransition } from '../../src/useAfterTransition';
 
-const ELBASAN = { lat: 41.1125, lng: 20.0822 };
-
 type Step = 'compose' | 'duplicates' | 'done';
+
+/**
+ * Where the location gate lands:
+ *  · 'pending' — permission/fix still in flight.
+ *  · 'ready' — got a fix, and it's inside Bashkia Elbasan. Reporting is allowed; see the pin-outside
+ *    check separately below for the (freely draggable) report pin itself.
+ *  · 'denied' | 'outside' | 'unavailable' — reporting is blocked; see the matching card in the render.
+ * There is deliberately no default-Elbasan fallback here — a fix that never lands, or lands outside
+ * the municipality, must block submission rather than silently substitute a pin nobody actually stood
+ * near, which is exactly the gap the whole feature exists to close.
+ */
+type LocationStatus = 'pending' | 'ready' | 'denied' | 'outside' | 'unavailable';
 
 /**
  * The citizen's core flow: photo → description → confirm the pin → submit.
@@ -52,8 +63,11 @@ export default function NewReportScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [categoryHint, setCategoryHint] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [coords, setCoords] = useState({ latitude: ELBASAN.lat, longitude: ELBASAN.lng });
-  const [locating, setLocating] = useState(true);
+  // The draggable report pin — only meaningful once locationStatus is 'ready'.
+  const [coords, setCoords] = useState({ latitude: 0, longitude: 0 });
+  // The live GPS fix, captured once and never moved — the presence proof sent alongside the pin.
+  const [deviceCoords, setDeviceCoords] = useState({ latitude: 0, longitude: 0 });
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('pending');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreateReportResponse | null>(null);
   const mapScrollLock = useMapScrollLock();
@@ -88,27 +102,37 @@ export default function NewReportScreen() {
 
   // One foreground fix, then we stop. Pre-filling the pin removes the most common reason a citizen
   // abandons the form, but it is always adjustable below.
+  //
+  // No Elbasan-center fallback on failure: reporting is gated on proving you're inside the municipality
+  // right now, so a permission denial, a failed fix, or a fix that lands outside Bashkia Elbasan all
+  // have to block submission rather than quietly hand back a pin nobody actually stood near.
+  const fetchLocation = useCallback(async () => {
+    setLocationStatus('pending');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') { setLocationStatus('denied'); return; }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const fix = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+
+      if (!isInsideElbasan(fix.latitude, fix.longitude)) { setLocationStatus('outside'); return; }
+
+      setDeviceCoords(fix);
+      setCoords(fix);
+      setLocationStatus('ready');
+      await fillAddressFrom(fix);
+    } catch {
+      setLocationStatus('unavailable');
+    }
+  }, [fillAddressFrom]);
+
   useEffect(() => {
-    if (!settled) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted' || cancelled) { setLocating(false); return; }
-
-        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        if (cancelled) return;
-
-        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-        setCoords(next);
-        if (!cancelled) await fillAddressFrom(next);
-      } catch { /* keep the Elbasan default */ }
-      finally { if (!cancelled) setLocating(false); }
-    })();
-
-    return () => { cancelled = true; };
-  }, [fillAddressFrom, settled]);
+    if (settled) void fetchLocation();
+    // Deliberately only on the transition settling — fetchLocation itself is re-created whenever
+    // fillAddressFrom's identity changes, and re-running the GPS fix on that would fight the citizen's
+    // own retry button below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled]);
 
   const pickPhoto = useCallback(async (fromCamera: boolean) => {
     const permission = fromCamera
@@ -168,6 +192,8 @@ export default function NewReportScreen() {
         description: description.trim(),
         latitude: coords.latitude,
         longitude: coords.longitude,
+        deviceLatitude: deviceCoords.latitude,
+        deviceLongitude: deviceCoords.longitude,
         addressText: address.trim() || undefined,
         photoUrls,
         categoryCodeHint: categoryHint ?? undefined,
@@ -184,7 +210,7 @@ export default function NewReportScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [description, address, photoUri, coords, categoryHint, notify, tr]);
+  }, [description, address, photoUri, coords, deviceCoords, categoryHint, notify, tr]);
 
   const mergeInto = useCallback(async (candidate: DuplicateCandidate) => {
     if (!result) return;
@@ -319,7 +345,8 @@ export default function NewReportScreen() {
   }
 
   /* ── Compose ──────────────────────────────────────────────────────────── */
-  const canSubmit = description.trim().length >= 10 && !submitting;
+  const pinInside = locationStatus === 'ready' && isInsideElbasan(coords.latitude, coords.longitude);
+  const canSubmit = description.trim().length >= 10 && locationStatus === 'ready' && pinInside && !submitting;
 
   return (
     <KeyboardAvoidingView
@@ -421,33 +448,65 @@ export default function NewReportScreen() {
           </View>
         )}
 
-        {/* 3 — Location */}
+        {/* 3 — Location. Gated on proving you're inside Bashkia Elbasan right now — reporting from
+            outside the municipality is blocked outright, with no default pin to fall back on. */}
         <View style={{ gap: space.sm }}>
           <Label>{tr('reportNew.stepLocation')}</Label>
-          <ScrollLockingMapBox
-            onTouchActiveChange={mapScrollLock.onTouchActiveChange}
-            style={{ borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: t.border }}
-          >
-            <LeafletMap
-              height={280}
-              zoom={17}
-              showZoomControls
-              center={{ lat: coords.latitude, lng: coords.longitude }}
-              pin={{ lat: coords.latitude, lng: coords.longitude, color: t.brand2 }}
-              onPinMove={next => {
-                const moved = { latitude: next.lat, longitude: next.lng };
-                setCoords(moved);
-                if (!addressEdited) void fillAddressFrom(moved);
-              }}
-            />
-          </ScrollLockingMapBox>
-          <Caption>
-            {locating
-              ? tr('reportNew.locating')
-              : addressEdited
-                ? tr('reportNew.addressEditedHint')
-                : tr('reportNew.addressAutoHint')}
-          </Caption>
+
+          {locationStatus === 'pending' && (
+            <Card style={{ alignItems: 'center', gap: space.sm, paddingVertical: space.xl }}>
+              <Caption>{tr('reportNew.locating')}</Caption>
+            </Card>
+          )}
+
+          {(locationStatus === 'denied' || locationStatus === 'outside' || locationStatus === 'unavailable') && (
+            <Card style={{ gap: space.sm }}>
+              <Heading>
+                {locationStatus === 'denied' && tr('reportNew.locationDeniedTitle')}
+                {locationStatus === 'outside' && tr('reportNew.locationOutsideTitle')}
+                {locationStatus === 'unavailable' && tr('reportNew.locationUnavailableTitle')}
+              </Heading>
+              <Body muted>
+                {locationStatus === 'denied' && tr('reportNew.locationDeniedMessage')}
+                {locationStatus === 'outside' && tr('reportNew.locationOutsideMessage')}
+                {locationStatus === 'unavailable' && tr('reportNew.locationUnavailableMessage')}
+              </Body>
+              <Button title={tr('reportNew.retryLocation')} variant="secondary" onPress={() => void fetchLocation()} />
+            </Card>
+          )}
+
+          {locationStatus === 'ready' && (
+            <>
+              <ScrollLockingMapBox
+                onTouchActiveChange={mapScrollLock.onTouchActiveChange}
+                style={{ borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: t.border }}
+              >
+                <LeafletMap
+                  height={280}
+                  zoom={17}
+                  showZoomControls
+                  center={{ lat: coords.latitude, lng: coords.longitude }}
+                  // The pin is intentionally free to drag anywhere on the map — only the device fix
+                  // above proved presence inside the municipality. A citizen who found a problem and
+                  // had to rush off submits later from wherever they ended up, dragging the pin back
+                  // to the spot; capping the drag distance from the fix would break exactly that.
+                  pin={{ lat: coords.latitude, lng: coords.longitude, color: pinInside ? t.brand2 : t.danger }}
+                  onPinMove={next => {
+                    const moved = { latitude: next.lat, longitude: next.lng };
+                    setCoords(moved);
+                    if (!addressEdited) void fillAddressFrom(moved);
+                  }}
+                />
+              </ScrollLockingMapBox>
+              <Caption style={!pinInside ? { color: t.danger } : undefined}>
+                {!pinInside
+                  ? tr('reportNew.pinOutsideWarning')
+                  : addressEdited
+                    ? tr('reportNew.addressEditedHint')
+                    : tr('reportNew.addressAutoHint')}
+              </Caption>
+            </>
+          )}
 
           <TextInput
             value={address}

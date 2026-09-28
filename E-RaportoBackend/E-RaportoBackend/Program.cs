@@ -7,6 +7,7 @@ using E_RaportoBackend.Services;
 using E_RaportoBackend.Services.Ai;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
@@ -49,11 +50,14 @@ if (string.IsNullOrWhiteSpace(jwtKey))
 // ── Services ────────────────────────────────────────────────────────────────────
 builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connectionString));
 
+builder.Services.AddMemoryCache();
+
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ReportWorkflow>();
 builder.Services.AddScoped<DuplicateDetectionService>();
 builder.Services.AddScoped<SystemicPatternDetectionService>();
 builder.Services.AddScoped<PhotoReuseDetectionService>();
+builder.Services.AddScoped<GpsMismatchService>();
 builder.Services.AddScoped<IPatternSynthesizer, ClaudePatternSynthesizer>();
 builder.Services.AddScoped<INoteTranslator, ClaudeNoteTranslator>();
 builder.Services.AddScoped<ReportTriageService>();
@@ -70,6 +74,7 @@ builder.Services.AddScoped<IPushNotificationService, ExpoPushNotificationService
 // implementation depends on it directly as its fallback, which is what keeps the demo alive.
 builder.Services.AddScoped<RuleBasedReportClassifier>();
 builder.Services.AddScoped<IReportClassifier, ClaudeReportClassifier>();
+builder.Services.AddScoped<FraudSignalService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
@@ -107,7 +112,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var path = context.HttpContext.Request.Path;
 
                 if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/realtime"))
+                {
                     context.Token = accessToken;
+                    return Task.CompletedTask;
+                }
+
+                // The admin dashboard carries its staff session as an httpOnly cookie instead of a
+                // header — a browser attaches it automatically, and page-injected JavaScript can never
+                // read it back out. Only consulted when no Authorization header was sent, so the mobile
+                // app's bearer-header staff/citizen auth (from AsyncStorage) is completely unaffected
+                // and always wins if a request somehow carries both.
+                if (StringValues.IsNullOrEmpty(context.Request.Headers.Authorization) &&
+                    context.Request.Cookies.TryGetValue(AuthCookies.StaffToken, out var cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
 
                 return Task.CompletedTask;
             }
@@ -155,16 +174,28 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
     {
         p.WithOrigins(allowed).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
     }
-    else
+    else if (builder.Environment.IsDevelopment())
     {
         // Expo Go dials in from whatever LAN IP the phone resolves, so an origin allowlist is
-        // impractical during the hackathon. Deployments set Cors:AllowedOrigins explicitly.
+        // impractical during local development. Never reached outside Development — see the fail-fast
+        // branch below — so this permissiveness can never ship.
         //
         // SetIsOriginAllowed rather than AllowAnyOrigin: the two look equivalent but are not. AllowAnyOrigin
         // answers with a literal `*`, and a browser refuses `*` on any credentialed request — which is what
         // the dashboard's SignalR negotiate is. Reflecting the caller's own origin keeps the same
         // "anything on the LAN" behaviour while staying usable with AllowCredentials.
         p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+    }
+    else
+    {
+        // Fail closed rather than fall open. Now that the staff dashboard's session rides a cookie
+        // that browsers attach automatically, an unconfigured allowlist in production would mean any
+        // website could fire credentialed requests against this API on a signed-in clerk's behalf —
+        // that's a much worse default than it was back when auth was only a header nothing attaches
+        // for you. Same fail-fast precedent as the JWT signing key above: a missing config value is a
+        // startup-time mistake to catch, not a runtime default to paper over.
+        throw new InvalidOperationException(
+            "Cors:AllowedOrigins must be configured outside Development — see README.md.");
     }
 }));
 

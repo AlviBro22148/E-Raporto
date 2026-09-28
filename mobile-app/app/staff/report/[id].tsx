@@ -34,6 +34,8 @@ export default function StaffReportDetailScreen() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [fraudReason, setFraudReason] = useState('');
+  const [raisingFraud, setRaisingFraud] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -53,6 +55,7 @@ export default function StaffReportDetailScreen() {
 
   // Same case, two clerks: this is what stops one of them acting on a status the other already changed.
   useRealtimeSubscription({ entity: 'report', id }, () => { void load(); });
+  useRealtimeSubscription({ entity: 'fraudFlag' }, () => { void load(); });
 
   async function changeStatus(status: ReportStatus) {
     if (!id) return;
@@ -108,6 +111,24 @@ export default function StaffReportDetailScreen() {
     }
   }
 
+  async function raiseFraudFlag() {
+    if (!id || fraudReason.trim().length < 5) return;
+    setRaisingFraud(true);
+    try {
+      await api.staffRaiseFraudFlag(id, fraudReason.trim());
+      setFraudReason('');
+      await load();
+    } catch (err) {
+      notify({
+        tone: 'error',
+        title: tr('staffReportDetail.statusChangeFailedTitle'),
+        message: err instanceof Error ? err.message : tr('common.retry'),
+      });
+    } finally {
+      setRaisingFraud(false);
+    }
+  }
+
   async function overrideCategory(categoryId: string) {
     if (!id) return;
     setBusy(true);
@@ -130,7 +151,7 @@ export default function StaffReportDetailScreen() {
     return <ErrorState message={error ?? tr('staffReportDetail.notFound')} onRetry={() => { setLoading(true); void load(); }} />;
   }
 
-  const { report, statusHistory, allowedNextStatuses, pattern } = data;
+  const { report, statusHistory, allowedNextStatuses, pattern, fraudFlags } = data;
   const ai = report.ai;
 
   return (
@@ -293,6 +314,43 @@ export default function StaffReportDetailScreen() {
         </Card>
       )}
 
+      {/* The full history for this report specifically — dismissed flags stay visible here, unlike the
+          Mashtrime tab, which only ever shows what's still pending a decision. */}
+      {fraudFlags && fraudFlags.length > 0 && (
+        <Card style={{ gap: space.sm }}>
+          <Label>{tr('staffReportDetail.fraudFlagsTitle', { count: fraudFlags.length })}</Label>
+          {fraudFlags.map(flag => (
+            <View
+              key={flag.flagId}
+              style={{
+                gap: 4, padding: space.md, borderRadius: radius.md,
+                backgroundColor: t.surface2, borderWidth: 1, borderColor: t.border,
+              }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: space.sm }}>
+                <Text style={[type.bodyStrong, {
+                  color: flag.kind === 'StaffFlagged' ? t.brand2 : flag.kind === 'SeverityExaggeration' ? t.danger : t.warning,
+                  flex: 1,
+                }]}>
+                  {tr(`fraud.kind.${flag.kind}`)}
+                </Text>
+                <Caption>{tr(`fraud.status${flag.status}`)}</Caption>
+              </View>
+              <Body>{flag.reasoning}</Body>
+              <Caption>
+                {flag.raisedByStaffName ? `${flag.raisedByStaffName} · ` : ''}
+                {formatRelative(flag.createdAt, tr)}
+              </Caption>
+            </View>
+          ))}
+          <Button
+            title={tr('staffReportDetail.reviewInFraud')}
+            variant="secondary"
+            onPress={() => router.push('/(staff)/fraud')}
+          />
+        </Card>
+      )}
+
       {/* A closed case is also a record that has to leave the system — printed, archived, or attached
           to a work order. It leads the actions once the case is resolved. */}
       {report.status === 'Resolved' && (
@@ -362,6 +420,32 @@ export default function StaffReportDetailScreen() {
             ))}
           </View>
         )}
+      </Card>
+
+      {/* Independent of report status and of every automated check above — a clerk's own judgement call
+          for whatever those structurally can't catch. Stats only for now: confirming this never touches
+          the reporter's account, only what shows in Analytics. */}
+      <Card style={{ gap: space.sm }}>
+        <Label>{tr('staffReportDetail.markAsFraudTitle')}</Label>
+        <TextInput
+          value={fraudReason}
+          onChangeText={setFraudReason}
+          placeholder={tr('staffReportDetail.markAsFraudPlaceholder')}
+          placeholderTextColor={t.ink3}
+          multiline
+          textAlignVertical="top"
+          style={{
+            minHeight: 70, backgroundColor: t.surface2, borderRadius: radius.md,
+            borderWidth: 1, borderColor: t.borderStrong, padding: space.md, color: t.ink, ...type.body,
+          }}
+        />
+        <Button
+          title={tr('staffReportDetail.markAsFraudButton')}
+          variant="secondary"
+          onPress={raiseFraudFlag}
+          loading={raisingFraud}
+          disabled={raisingFraud || fraudReason.trim().length < 5}
+        />
       </Card>
 
       <Card style={{ gap: space.md }}>

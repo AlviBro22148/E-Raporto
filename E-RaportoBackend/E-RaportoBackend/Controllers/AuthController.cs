@@ -44,10 +44,36 @@ public class AuthController(AppDbContext db, TokenService tokens, ILogger<AuthCo
         await db.SaveChangesAsync(ct);
 
         var (token, expiresAt) = tokens.IssueForStaff(user);
+
+        // Also set as an httpOnly cookie for the browser dashboard — see AuthCookies.StaffToken. The
+        // token still comes back in the response body too, because the mobile app's staff mode calls
+        // this same endpoint and has no use for a browser cookie; it reads the body and stores the
+        // token itself via AsyncStorage, same as before.
+        Response.Cookies.Append(AuthCookies.StaffToken, token, new CookieOptions
+        {
+            HttpOnly = true,
+            // Browsers treat localhost as a secure context regardless of scheme, so this holds on a
+            // local dev machine too — there is no environment where this needs to be false.
+            Secure = true,
+            SameSite = SameSiteMode.Lax,
+            Expires = expiresAt,
+            Path = "/",
+        });
+
         return Ok(new LoginResponse(token, expiresAt, user.ToDto()));
     }
 
-    /// <summary>Validates a stored token on dashboard boot and returns the current staff user.</summary>
+    /// <summary>Clears the staff dashboard's session cookie.</summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete(AuthCookies.StaffToken, new CookieOptions { Path = "/" });
+        return NoContent();
+    }
+
+    /// <summary>Validates the current session (cookie for the dashboard, bearer header for mobile) on
+    /// boot and returns the current staff user.</summary>
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType<StaffUserDto>(StatusCodes.Status200OK)]

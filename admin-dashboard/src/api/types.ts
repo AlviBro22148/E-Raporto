@@ -206,6 +206,9 @@ export interface ReportDetailDto {
   allowedNextStatuses: ReportStatus[];
   /** The full systemic pattern this report belongs to, staff-only. Null when it belongs to none. */
   pattern?: SystemicPatternDto | null;
+  /** Every fraud flag naming this report, either side of a pairing, dismissed ones included — the full
+   *  history, not just what's still pending in the queue. */
+  fraudFlags?: FraudFlagDto[] | null;
 }
 
 /** SharedCause = one identifiable thing likely produces all the symptoms — a single inspection could
@@ -265,14 +268,31 @@ export interface DuplicateReviewItemDto {
  * legitimately resubmit their own photo), so nothing merges or changes on either report — this only
  * ever opens a staff review, same "system proposes, human decides" shape as duplicates and patterns.
  */
-export interface PhotoReuseFlagDto {
+/** Every reason a report might be worth a fraud review, unified into one shape — see the backend's
+ *  FraudFlagKind for what each kind actually checks. RelatedReport is only set for PhotoReuse and
+ *  TemplatedText, the two kinds that point at a pairing rather than a single report. */
+export type FraudFlagKind =
+  | 'PhotoReuse' | 'DescriptionMismatch' | 'SeverityExaggeration' | 'StockPhoto'
+  | 'PhotoOfPhoto' | 'GpsMismatch' | 'TemplatedText' | 'StaffFlagged';
+export type FraudReviewStatus = 'Pending' | 'Acknowledged' | 'Dismissed';
+
+export interface FraudFlagDto {
   flagId: string;
+  kind: FraudFlagKind;
+  status: FraudReviewStatus;
+  reasoning: string;
+  /** Meaning depends on kind: Hamming distance (PhotoReuse), metres (GpsMismatch), 0-1 word-overlap
+   *  (TemplatedText), Claude's own calibrated confidence 0-1 (the four vision checks). Null for
+   *  StaffFlagged — a clerk's judgement doesn't get a fake number attached. */
+  score?: number | null;
   report: ReportListItemDto;
-  matchedReport: ReportListItemDto;
-  /** Bits differing out of 64, 0-6. Lower means a closer visual match. */
-  hammingDistance: number;
+  relatedReport?: ReportListItemDto | null;
+  raisedByStaffName?: string | null;
+  reviewedByStaffName?: string | null;
   createdAt: string;
 }
+
+export interface FraudKindStat { kind: FraudFlagKind; count: number }
 
 export interface CategoryStat {
   code: string; nameSq: string; colorHex: string; count: number; avgHoursToResolution?: number;
@@ -310,8 +330,15 @@ export interface AnalyticsSummaryDto {
   citizenVerifiedRate?: number;
   /** Systemic patterns not yet dismissed — Pending or Acknowledged. */
   openSystemicPatterns: number;
-  /** Reused-photo flags awaiting a staff decision. */
-  pendingPhotoReuseReviews: number;
+  /** Fraud flags awaiting a staff decision — every kind, automated and staff-raised. */
+  pendingFraudFlags: number;
+  /** Flags a clerk agreed were worth following up on. Stats only — no automatic effect on the
+   *  reporter's account, a deliberate scope decision for the pilot. */
+  confirmedFraudFlags: number;
+  /** Flags a clerk marked a false positive. */
+  dismissedFraudFlags: number;
+  /** Breakdown of the currently-pending flags by kind. */
+  fraudFlagsByKind: FraudKindStat[];
 }
 
 export interface PagedResult<T> {

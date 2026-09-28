@@ -14,7 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ReportPhoto> ReportPhotos => Set<ReportPhoto>();
     public DbSet<ReportStatusHistory> ReportStatusHistory => Set<ReportStatusHistory>();
     public DbSet<DuplicateCandidate> DuplicateCandidates => Set<DuplicateCandidate>();
-    public DbSet<PhotoReuseFlag> PhotoReuseFlags => Set<PhotoReuseFlag>();
+    public DbSet<FraudFlag> FraudFlags => Set<FraudFlag>();
     public DbSet<CitizenNotification> CitizenNotifications => Set<CitizenNotification>();
     public DbSet<ReportConfirmation> ReportConfirmations => Set<ReportConfirmation>();
     public DbSet<ResolutionVerification> ResolutionVerifications => Set<ResolutionVerification>();
@@ -172,15 +172,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(x => x.CandidateReportId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        b.Entity<PhotoReuseFlag>(e =>
+        b.Entity<FraudFlag>(e =>
         {
-            e.ToTable("photo_reuse_flag");
-            e.HasIndex(x => new { x.ReportId, x.MatchedReportId }).IsUnique();
+            e.ToTable("fraud_flag");
+            e.HasIndex(x => new { x.ReportId, x.RelatedReportId, x.Kind }).IsUnique();
             e.HasIndex(x => x.ReviewStatus);
+            e.HasIndex(x => x.Kind);
             e.HasOne(x => x.Report).WithMany()
                 .HasForeignKey(x => x.ReportId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.MatchedReport).WithMany()
-                .HasForeignKey(x => x.MatchedReportId).OnDelete(DeleteBehavior.Restrict);
+            // Restrict, not Cascade: deleting the report a flag points AT (rare — reports aren't
+            // deleted in normal operation) must never cascade-delete a flag whose primary subject is a
+            // different, still-live report.
+            e.HasOne(x => x.RelatedReport).WithMany()
+                .HasForeignKey(x => x.RelatedReportId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReviewedByStaff).WithMany()
+                .HasForeignKey(x => x.ReviewedByStaffId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.RaisedByStaff).WithMany()
+                .HasForeignKey(x => x.RaisedByStaffId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<CitizenNotification>(e =>

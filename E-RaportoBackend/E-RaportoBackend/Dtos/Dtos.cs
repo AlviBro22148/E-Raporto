@@ -169,7 +169,20 @@ public record ReportDetailDto(
     IReadOnlyList<StatusHistoryDto> StatusHistory,
     IReadOnlyList<DuplicateCandidateDto> DuplicateCandidates,
     IReadOnlyList<string> AllowedNextStatuses,
-    SystemicPatternDto? Pattern = null);
+    SystemicPatternDto? Pattern = null,
+    IReadOnlyList<FraudFlagDto>? FraudFlags = null);
+
+// ─────────────────────────── Fraud review ───────────────────────────
+
+/// <summary>Every reason a report might be worth a fraud review, unified — see
+/// <see cref="Domain.FraudFlagKind"/> for what each kind actually checks.</summary>
+public record FraudFlagDto(
+    Guid FlagId, string Kind, string Status, string Reasoning, double? Score,
+    ReportListItemDto Report, ReportListItemDto? RelatedReport,
+    string? RaisedByStaffName, string? ReviewedByStaffName, DateTime CreatedAt);
+
+/// <summary>A clerk's own judgement call — the one fraud reason with no automated check behind it.</summary>
+public record RaiseFraudFlagRequest([Required, MinLength(5), MaxLength(500)] string Reason);
 
 // ─────────────────────────── Systemic patterns ───────────────────────────
 
@@ -205,6 +218,16 @@ public class CreateReportRequest
 
     [Range(-90, 90)] public double Latitude { get; set; }
     [Range(-180, 180)] public double Longitude { get; set; }
+
+    /// <summary>
+    /// The reporter's live GPS fix at submit time — the "are you actually in Elbasan right now" honest
+    /// signal. Deliberately separate from <see cref="Latitude"/>/<see cref="Longitude"/>, which is the
+    /// (freely draggable) pin marking where the problem is. A citizen can find a problem, rush off, and
+    /// submit later from anywhere else inside the municipality — the pin should move freely; only the
+    /// device fix has to prove presence within the borders.
+    /// </summary>
+    [Range(-90, 90)] public double DeviceLatitude { get; set; }
+    [Range(-180, 180)] public double DeviceLongitude { get; set; }
 
     [MaxLength(300)] public string? AddressText { get; set; }
     public List<string> PhotoUrls { get; set; } = [];
@@ -321,7 +344,13 @@ public record AnalyticsSummaryDto(
     IReadOnlyList<DepartmentStatDto> ByDepartment,
     int VerificationsConfirmed = 0, int VerificationsDisputed = 0,
     int VerificationsAwaiting = 0, double? CitizenVerifiedRate = null,
-    int OpenSystemicPatterns = 0, int PendingPhotoReuseReviews = 0);
+    int OpenSystemicPatterns = 0,
+    int PendingFraudFlags = 0, int ConfirmedFraudFlags = 0, int DismissedFraudFlags = 0,
+    IReadOnlyList<FraudKindStatDto>? FraudFlagsByKind = null);
+
+/// <summary>How many pending flags of each <see cref="Domain.FraudFlagKind"/> currently sit in the queue —
+/// stats only, no consequence attached, per the pilot's own scope (see AnalyticsController remarks).</summary>
+public record FraudKindStatDto(string Kind, int Count);
 
 public record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total)
 {
